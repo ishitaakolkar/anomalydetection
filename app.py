@@ -77,14 +77,18 @@ def load_env():
                     os.environ[key.strip()] = value.strip()
 
 @st.cache_data
-def load_data(uploaded_file):
-    if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
-        return df
-    # Default fallback
-    dataset_path = "retail_sales.csv"
-    if os.path.exists(dataset_path):
-        return pd.read_csv(dataset_path)
+def load_data(source):
+    """Load data from a filename string or an uploaded file object."""
+    if source is not None:
+        try:
+            # If source is a string, it's a local filename, else it's an uploaded file
+            if isinstance(source, str):
+                if os.path.exists(source):
+                    return pd.read_csv(source)
+            else:
+                return pd.read_csv(source)
+        except Exception as e:
+            st.error(f"Error loading data: {e}")
     return None
 
 @st.cache_data
@@ -129,20 +133,19 @@ def get_business_tip(category, direction, magnitude):
     # General strategies if category not specifically matched
     if direction == "Spike":
         if "beauty" in cat or "cosmetic" in cat:
-            return "🚀 **Opportunity:** Viral trend or influencer mention? Check social mentions and ensure shelf availability."
+            return "🚀 Opportunity: Viral trend or influencer mention? Check social mentions and ensure shelf availability."
         if "electronic" in cat or "tech" in cat:
-            return "🔋 **Opportunity:** New product launch or tech event? Consider bundling accessories for this high-demand period."
+            return "🔋 Opportunity: New product launch or tech event? Consider bundling accessories for this high-demand period."
         if "clothing" in cat or "fashion" in cat:
-            return "👕 **Opportunity:** Seasonal shift? Double down on similar styles in your upcoming marketing campaign."
-        return f"🌟 **Opportunity:** Unusual {magnitude:.1f}x growth! Analyze marketing channels and consider extending current promotions."
+            return "👕 Opportunity: Seasonal shift? Double down on similar styles in your upcoming marketing campaign."
+        return f"🌟 Opportunity: Unusual {magnitude:.1f}x growth! Analyze marketing channels and consider extending current promotions."
     else: # Dip
         if "beauty" in cat or "cosmetic" in cat:
-            return "⚠️ **Risk:** Stock-out or competitor sale? Verify inventory levels and check for regional price wars."
+            return "⚠️ Risk: Stock-out or competitor sale? Verify inventory levels and check for regional price wars."
         if "electronic" in cat or "tech" in cat:
-            return "🔌 **Risk:** Supply chain delay? Monitor shipping logs and provide proactive updates to waiting customers."
+            return "🔌 Risk: Supply chain delay? Monitor shipping logs and provide proactive updates to waiting customers."
         if "clothing" in cat or "fashion" in cat:
-            return "👗 **Risk:** Out-of-season inventory? Consider a flash clearance to move slow-moving stock."
-        return f"🚨 **Risk:** Sales dropped significantly below expected levels. Check for data entry errors or operational disruptions."
+            return "👗 Risk: Out-of-season inventory? Consider a flash clearance to move slow-moving stock."
 
 def detect_anomalies(df, level, selected_items, api_key):
     nixtla_client = NixtlaClient(api_key=api_key)
@@ -185,14 +188,25 @@ def main():
     default_key = os.environ.get("NIXTLA_API_KEY", "")
     nixtla_api_key = st.sidebar.text_input("Nixtla API Key", value=default_key, type="password", help="Get your key at dashboard.nixtla.io")
 
-    # Sidebar: File Upload
+    # Sidebar: Data Source Selection
     st.sidebar.header("📁 Data Source")
-    uploaded_file = st.sidebar.file_uploader("Upload your CSV", type="csv")
+    source_type = st.sidebar.radio("Source Type", ["Presets", "Upload Custom"])
     
-    df = load_data(uploaded_file)
+    source = None
+    if source_type == "Presets":
+        preset_options = {
+            "🛒 Retail Sales": "retail_sales.csv",
+            "🛍️ Mall Sales": "mall_sales.csv"
+        }
+        selected_label = st.sidebar.selectbox("Select Dataset", list(preset_options.keys()))
+        source = preset_options[selected_label]
+    else:
+        source = st.sidebar.file_uploader("Upload your CSV", type="csv")
+    
+    df = load_data(source)
     
     if df is None:
-        st.info("👋 Welcome! Please upload a CSV file or ensure `retail_sales.csv` is in the directory to start.")
+        st.info("👋 Welcome! Please select a dataset or upload a CSV file to start.")
         return
 
     # Sidebar: Column Mapping
