@@ -97,21 +97,28 @@ def preprocess_data(df, ds_col, y_col, id_col):
     # Filter for the last 6 months (180 days) of data
     max_date = working_df['ds'].max()
     cutoff_date = max_date - pd.Timedelta(days=180)
-    working_df = working_df[working_df['ds'] >= cutoff_date]
+    
+    # Create master date range for padding (last 180 days)
+    master_dates = pd.date_range(start=cutoff_date, end=max_date, freq='D')
+    master_df = pd.DataFrame({'ds': master_dates})
     
     # Daily aggregation
     daily_sales = working_df.groupby(['unique_id', working_df['ds'].dt.date]).agg({'y': 'sum'}).reset_index()
     daily_sales['ds'] = pd.to_datetime(daily_sales['ds'])
     
-    # Fill gaps for each unique ID
+    # Fill gaps and ENSURE 180 days of history for every ID (Padding)
     all_ids = daily_sales['unique_id'].unique()
     dfs = []
     for uid in all_ids:
-        uid_df = daily_sales[daily_sales['unique_id'] == uid].copy()
-        uid_df = uid_df.set_index('ds').resample('D').asfreq().reset_index()
-        uid_df['unique_id'] = uid
-        uid_df['y'] = uid_df['y'].fillna(0)
-        dfs.append(uid_df)
+        # Get data for this ID
+        uid_data = daily_sales[daily_sales['unique_id'] == uid].copy()
+        
+        # Merge with master date range to ensure full 180-day window
+        uid_padded = master_df.merge(uid_data, on='ds', how='left')
+        uid_padded['unique_id'] = uid
+        uid_padded['y'] = uid_padded['y'].fillna(0)
+        
+        dfs.append(uid_padded)
     
     return pd.concat(dfs).sort_values(['unique_id', 'ds'])
 
@@ -144,6 +151,9 @@ def detect_anomalies(df, level, selected_items):
     # Filter for selected items
     subset_df = df[df['unique_id'].isin(selected_items)]
     
+    if subset_df.empty:
+        return pd.DataFrame()
+        
     anomalies_df = nixtla_client.detect_anomalies(
         df=subset_df,
         freq='D',
@@ -156,7 +166,9 @@ def generate_forecast(df, selected_items, horizon=7):
     nixtla_client = NixtlaClient()
     
     subset_df = df[df['unique_id'].isin(selected_items)]
-    
+    if subset_df.empty:
+        return pd.DataFrame()
+        
     forecast_df = nixtla_client.forecast(
         df=subset_df,
         h=horizon,
@@ -318,12 +330,15 @@ def main():
                     col_idx = i % 2
                     with display_cols[col_idx]:
                         # 1. Determine "Why": Spike vs Dip
-                        # Use TimeGPT-hi and TimeGPT-lo specifically for the sensitivity level
-                        hi_col = [c for c in anomalous_data.columns if 'hi' in c][0]
-                        lo_col = [c for c in anomalous_data.columns if 'lo' in c][0]
+                        # More robust column finding: look for columns containing 'hi' or 'lo'
+                        hi_cols = [c for c in anomalous_data.columns if 'hi' in c.lower()]
+                        lo_cols = [c for c in anomalous_data.columns if 'lo' in c.lower()]
                         
-                        upper_bound = row[hi_col]
-                        lower_bound = row[lo_col]
+                        if not hi_cols or not lo_cols:
+                            continue # Should not happen, but prevents crash
+                            
+                        upper_bound = row[hi_cols[0]]
+                        lower_bound = row[lo_cols[0]]
                         actual = row['y']
                         
                         if actual > upper_bound:
