@@ -144,9 +144,8 @@ def get_business_tip(category, direction, magnitude):
             return "👗 **Risk:** Out-of-season inventory? Consider a flash clearance to move slow-moving stock."
         return f"🚨 **Risk:** Sales dropped significantly below expected levels. Check for data entry errors or operational disruptions."
 
-def detect_anomalies(df, level, selected_items):
-    load_env()
-    nixtla_client = NixtlaClient()
+def detect_anomalies(df, level, selected_items, api_key):
+    nixtla_client = NixtlaClient(api_key=api_key)
     
     # Filter for selected items
     subset_df = df[df['unique_id'].isin(selected_items)]
@@ -161,9 +160,8 @@ def detect_anomalies(df, level, selected_items):
     )
     return anomalies_df
 
-def generate_forecast(df, selected_items, horizon=7):
-    load_env()
-    nixtla_client = NixtlaClient()
+def generate_forecast(df, selected_items, api_key, horizon=7):
+    nixtla_client = NixtlaClient(api_key=api_key)
     
     subset_df = df[df['unique_id'].isin(selected_items)]
     if subset_df.empty:
@@ -181,6 +179,12 @@ def main():
     st.title("🌐 Universal AI Time-Series Explorer")
     st.markdown("### Zero-Shot Anomaly Detection & Forecasting via Nixtla TimeGPT")
     
+    # Sidebar: API Key Configuration
+    st.sidebar.header("🔑 API Configuration")
+    load_env() # Load default from .env if exists
+    default_key = os.environ.get("NIXTLA_API_KEY", "")
+    nixtla_api_key = st.sidebar.text_input("Nixtla API Key", value=default_key, type="password", help="Get your key at dashboard.nixtla.io")
+
     # Sidebar: File Upload
     st.sidebar.header("📁 Data Source")
     uploaded_file = st.sidebar.file_uploader("Upload your CSV", type="csv")
@@ -224,6 +228,10 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.info("This tool is dataset-agnostic. Just map your columns and let the AI do the rest.")
 
+    if not nixtla_api_key:
+        st.warning("⚠️ Please enter your Nixtla API Key in the sidebar to begin analysis.")
+        return
+
     if not selected_items:
         st.warning(f"Please select at least one {id_col} to begin.")
         return
@@ -231,13 +239,13 @@ def main():
     with st.spinner("AI is analyzing patterns..."):
         try:
             # 1. Detect Anomalies
-            anomalies_df = detect_anomalies(daily_sales, sensitivity, selected_items)
+            anomalies_df = detect_anomalies(daily_sales, sensitivity, selected_items, nixtla_api_key)
             merged_df = daily_sales.merge(anomalies_df, on=['unique_id', 'ds'], how='inner', suffixes=('', '_anomaly'))
             
             # 2. Generate Forecast if enabled
             forecast_df = None
             if show_forecast:
-                forecast_df = generate_forecast(daily_sales, selected_items)
+                forecast_df = generate_forecast(daily_sales, selected_items, nixtla_api_key)
 
             # KPI Metrics
             cols = st.columns(3)
@@ -379,8 +387,8 @@ def main():
 
         except Exception as e:
             st.error(f"Error during analysis: {e}")
-            if "NIXTLA_API_KEY" in str(e):
-                st.warning("Please check your NIXTLA_API_KEY in the `.env` file.")
+            if "api_key" in str(e).lower() or "unauthorized" in str(e).lower():
+                st.warning("Please check your Nixtla API Key in the sidebar.")
 
 if __name__ == "__main__":
     main()
