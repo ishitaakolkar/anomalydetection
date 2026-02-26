@@ -192,7 +192,7 @@ def main():
     df = load_data(uploaded_file)
     
     if df is None:
-        st.info("👋 Welcome! Please upload a CSV file or ensure `mall_sales.csv` is in the directory to start.")
+        st.info("👋 Welcome! Please upload a CSV file or ensure `retail_sales.csv` is in the directory to start.")
         return
 
     # Sidebar: Column Mapping
