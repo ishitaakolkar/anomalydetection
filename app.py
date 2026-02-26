@@ -179,7 +179,7 @@ def generate_forecast(df, selected_items, api_key, horizon=7):
     return forecast_df
 
 def main():
-    st.title("🌐 Universal AI Time-Series Explorer")
+    st.title("AI Time-Series Explorer")
     st.markdown("### Zero-Shot Anomaly Detection & Forecasting via Nixtla TimeGPT")
     
     # Sidebar: API Key Configuration
