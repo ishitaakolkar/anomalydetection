@@ -7,8 +7,8 @@ from datetime import datetime
 
 # Set page config for a premium look
 st.set_page_config(
-    page_title="Mall Sales Anomaly Detection",
-    page_icon="🛍️",
+    page_title="Retail Insights AI",
+    page_icon="🛒",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -82,7 +82,7 @@ def load_data(uploaded_file):
         df = pd.read_csv(uploaded_file)
         return df
     # Default fallback
-    dataset_path = "mall_sales.csv"
+    dataset_path = "retail_sales.csv"
     if os.path.exists(dataset_path):
         return pd.read_csv(dataset_path)
     return None
@@ -199,10 +199,10 @@ def main():
     st.sidebar.header("🎯 Column Mapping")
     cols = df.columns.tolist()
     
-    # Smart defaults for Mall Sales or Retail Sales
-    def_ds = "invoice_date" if "invoice_date" in cols else ("Date" if "Date" in cols else cols[0])
-    def_y = "price" if "price" in cols else ("Total Amount" if "Total Amount" in cols else cols[1])
-    def_id = "shopping_mall" if "shopping_mall" in cols else ("Product Category" if "Product Category" in cols else cols[2])
+    # Smart defaults for Retail Sales or Mall Sales
+    def_ds = "Date" if "Date" in cols else ("invoice_date" if "invoice_date" in cols else cols[0])
+    def_y = "Total Amount" if "Total Amount" in cols else ("price" if "price" in cols else cols[1])
+    def_id = "Product Category" if "Product Category" in cols else ("shopping_mall" if "shopping_mall" in cols else cols[2])
 
     ds_col = st.sidebar.selectbox("Date Column (ds)", cols, index=cols.index(def_ds))
     y_col = st.sidebar.selectbox("Value Column (y)", cols, index=cols.index(def_y))
