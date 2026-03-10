@@ -80,15 +80,26 @@ def load_env():
 def load_data(source):
     """Load data from a filename string or an uploaded file object."""
     if source is not None:
-        try:
-            # If source is a string, it's a local filename, else it's an uploaded file
-            if isinstance(source, str):
-                if os.path.exists(source):
-                    return pd.read_csv(source)
-            else:
-                return pd.read_csv(source)
-        except Exception as e:
-            st.error(f"Error loading data: {e}")
+        encodings = ['utf-8', 'latin-1', 'cp1252']
+        for encoding in encodings:
+            try:
+                # Reset pointer if it's a file-like object (e.g. UploadedFile)
+                if not isinstance(source, str) and hasattr(source, 'seek'):
+                    source.seek(0)
+                    
+                # If source is a string, it's a local filename, else it's an uploaded file
+                if isinstance(source, str):
+                    if os.path.exists(source):
+                        return pd.read_csv(source, encoding=encoding, thousands=',')
+                else:
+                    return pd.read_csv(source, encoding=encoding, thousands=',')
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                st.error(f"Error loading data with {encoding}: {e}")
+                break
+        else:
+            st.error("Error loading data: Could not decode file with common encodings (UTF-8, Latin-1, CP1252).")
     return None
 
 @st.cache_data
@@ -96,7 +107,12 @@ def preprocess_data(df, ds_col, y_col, id_col):
     # Standardize names for internal logic
     working_df = df[[ds_col, y_col, id_col]].copy()
     working_df = working_df.rename(columns={ds_col: 'ds', y_col: 'y', id_col: 'unique_id'})
-    working_df['ds'] = pd.to_datetime(working_df['ds'])
+    working_df['ds'] = pd.to_datetime(working_df['ds'], errors='coerce')
+    
+    # Drop rows where date could not be parsed
+    invalid_dates = working_df['ds'].isna().sum()
+    if invalid_dates > 0:
+        working_df = working_df.dropna(subset=['ds'])
     
     # Filter for the last 6 months (180 days) of data
     max_date = working_df['ds'].max()
@@ -213,23 +229,34 @@ def main():
     st.sidebar.header("🎯 Column Mapping")
     cols = df.columns.tolist()
     
-    # Smart defaults for Retail Sales or Mall Sales
+    # Smart defaults for Retail Sales, Mall Sales, or Dummydata
     def_ds = "Date" if "Date" in cols else ("invoice_date" if "invoice_date" in cols else cols[0])
-    def_y = "Total Amount" if "Total Amount" in cols else ("price" if "price" in cols else cols[1])
-    def_id = "Product Category" if "Product Category" in cols else ("shopping_mall" if "shopping_mall" in cols else cols[2])
+    def_y = "Net Sales" if "Net Sales" in cols else ("Total Amount" if "Total Amount" in cols else ("price" if "price" in cols else cols[1]))
+    def_id = "Tenant Name" if "Tenant Name" in cols else ("Product Category" if "Product Category" in cols else ("shopping_mall" if "shopping_mall" in cols else cols[2]))
 
     ds_col = st.sidebar.selectbox("Date Column (ds)", cols, index=cols.index(def_ds))
     y_col = st.sidebar.selectbox("Value Column (y)", cols, index=cols.index(def_y))
     id_col = st.sidebar.selectbox("Category/ID Column (unique_id)", cols, index=cols.index(def_id))
 
     # Pre-calculate date range for display
-    temp_df = df.copy()
-    temp_df[ds_col] = pd.to_datetime(temp_df[ds_col])
-    max_date = temp_df[ds_col].max()
-    min_date = max_date - pd.Timedelta(days=180)
-    st.info(f"📅 **Active Analysis Period:** {min_date.strftime('%b %Y')} to {max_date.strftime('%b %Y')} (Recent 6 Months)")
+    try:
+        temp_df = df.copy()
+        temp_df[ds_col] = pd.to_datetime(temp_df[ds_col], errors='coerce')
+        temp_df = temp_df.dropna(subset=[ds_col])
+        
+        if temp_df.empty:
+            st.warning(f"⚠️ **Column '{ds_col}'** does not appear to contain valid dates. Please check your column mapping.")
+            return
 
-    daily_sales = preprocess_data(df, ds_col, y_col, id_col)
+        max_date = temp_df[ds_col].max()
+        min_date = max_date - pd.Timedelta(days=180)
+        st.info(f"📅 **Active Analysis Period:** {min_date.strftime('%b %Y')} to {max_date.strftime('%b %Y')} (Recent 6 Months)")
+        
+        daily_sales = preprocess_data(df, ds_col, y_col, id_col)
+    except Exception as e:
+        st.error(f"Error processing dates in column '{ds_col}': {e}")
+        st.info("💡 Tip: Ensure you have selected the correct Date column in the sidebar.")
+        return
 
     # Sidebar: Analysis Controls
     st.sidebar.header("⚙️ Analysis Controls")
