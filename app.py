@@ -114,19 +114,17 @@ def preprocess_data(df, ds_col, y_col, id_col):
     if invalid_dates > 0:
         working_df = working_df.dropna(subset=['ds'])
     
-    # Filter for the last 6 months (180 days) of data
+    # Create master date range for padding (Full Range)
+    min_date = working_df['ds'].min()
     max_date = working_df['ds'].max()
-    cutoff_date = max_date - pd.Timedelta(days=180)
-    
-    # Create master date range for padding (last 180 days)
-    master_dates = pd.date_range(start=cutoff_date, end=max_date, freq='D')
+    master_dates = pd.date_range(start=min_date, end=max_date, freq='D')
     master_df = pd.DataFrame({'ds': master_dates})
     
     # Daily aggregation
-    daily_sales = working_df.groupby(['unique_id', working_df['ds'].dt.date]).agg({'y': 'sum'}).reset_index()
+    daily_sales = working_df.groupby(['unique_id', working_df['ds'].dt.floor('D')]).agg({'y': 'sum'}).reset_index()
     daily_sales['ds'] = pd.to_datetime(daily_sales['ds'])
     
-    # Fill gaps and ENSURE 180 days of history for every ID (Padding)
+    # Fill gaps and ENSURE full window of history for every ID (Padding)
     all_ids = daily_sales['unique_id'].unique()
     dfs = []
     for uid in all_ids:
@@ -136,7 +134,7 @@ def preprocess_data(df, ds_col, y_col, id_col):
         # Merge with master date range to ensure full 180-day window
         uid_padded = master_df.merge(uid_data, on='ds', how='left')
         uid_padded['unique_id'] = uid
-        uid_padded['y'] = uid_padded['y'].fillna(0)
+        uid_padded['y'] = uid_padded['y'].fillna(0).infer_objects(copy=False)
         
         dfs.append(uid_padded)
     
@@ -179,7 +177,7 @@ def detect_anomalies(df, level, selected_items, api_key):
     )
     return anomalies_df
 
-def generate_forecast(df, selected_items, api_key, horizon=7):
+def generate_forecast(df, selected_items, api_key, horizon=30):
     nixtla_client = NixtlaClient(api_key=api_key)
     
     subset_df = df[df['unique_id'].isin(selected_items)]
@@ -211,10 +209,14 @@ def main():
     source = None
     if source_type == "Presets":
         preset_options = {
+            "📈 Tenant Sales (Dummy Data)": "Dummydata.csv",
             "🛒 Retail Sales": "retail_sales.csv",
             "🛍️ Mall Sales": "mall_sales.csv"
         }
-        selected_label = st.sidebar.selectbox("Select Dataset", list(preset_options.keys()))
+        # Find which index Dummydata is at to set as default if it exists
+        preset_list = list(preset_options.keys())
+        default_idx = 0 # Default to first item (Dummy Data)
+        selected_label = st.sidebar.selectbox("Select Dataset", preset_list, index=default_idx)
         source = preset_options[selected_label]
     else:
         source = st.sidebar.file_uploader("Upload your CSV", type="csv")
@@ -248,9 +250,9 @@ def main():
             st.warning(f"⚠️ **Column '{ds_col}'** does not appear to contain valid dates. Please check your column mapping.")
             return
 
+        min_date = temp_df[ds_col].min()
         max_date = temp_df[ds_col].max()
-        min_date = max_date - pd.Timedelta(days=180)
-        st.info(f"📅 **Active Analysis Period:** {min_date.strftime('%b %Y')} to {max_date.strftime('%b %Y')} (Recent 6 Months)")
+        st.info(f"📅 **Active Analysis Period:** {min_date.strftime('%b %d, %Y')} to {max_date.strftime('%b %d, %Y')} (Full Dataset)")
         
         daily_sales = preprocess_data(df, ds_col, y_col, id_col)
     except Exception as e:
@@ -264,7 +266,7 @@ def main():
     selected_items = st.sidebar.multiselect(f"Select {id_col}(s)", all_items, default=all_items[:2] if all_items else [])
     
     sensitivity = st.sidebar.slider("Anomaly Sensitivity", min_value=90.0, max_value=99.9, value=99.0, step=0.1)
-    show_forecast = st.sidebar.toggle("Show 7-Day Forecast", value=True)
+    show_forecast = st.sidebar.toggle("Show 30-Day Forecast", value=True)
     
     st.sidebar.markdown("---")
     st.sidebar.info("This tool is dataset-agnostic. Just map your columns and let the AI do the rest.")
@@ -297,8 +299,8 @@ def main():
             cols[1].metric("Anomalies Detected", int(total_anomalies))
             
             if forecast_df is not None:
-                next_week_sales = forecast_df['TimeGPT'].sum()
-                cols[2].metric("Projected Week Sales", f"${next_week_sales:,.0f}")
+                next_month_sales = forecast_df['TimeGPT'].sum()
+                cols[2].metric("Projected 30-Day Sales", f"${next_month_sales:,.0f}")
             else:
                 cols[2].metric(f"Active {id_col}s", len(selected_items))
 
