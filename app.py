@@ -263,7 +263,19 @@ def main():
     # Sidebar: Analysis Controls
     st.sidebar.header("⚙️ Analysis Controls")
     all_items = sorted(daily_sales['unique_id'].unique().tolist())
-    selected_items = st.sidebar.multiselect(f"Select {id_col}(s)", all_items, default=all_items[:2] if all_items else [])
+    selected_items = st.sidebar.multiselect(f"Select {id_col}(s)", ["All"] + all_items, default=all_items[:2] if all_items else [])
+    
+    # Aggregation logic if 'All' is selected in Explorer
+    if "All" in selected_items:
+        # If 'All' is selected, we replace or augment the selection? 
+        # Let's say we add a special ID called 'Total Aggregated'
+        agg_df = daily_sales.groupby('ds').agg({'y': 'sum'}).reset_index()
+        agg_df['unique_id'] = 'Total Aggregated'
+        daily_sales_for_analysis = pd.concat([daily_sales, agg_df])
+        analysis_ids = ['Total Aggregated']
+    else:
+        daily_sales_for_analysis = daily_sales
+        analysis_ids = selected_items
     
     sensitivity = st.sidebar.slider("Anomaly Sensitivity", min_value=90.0, max_value=99.9, value=99.0, step=0.1)
     show_forecast = st.sidebar.toggle("Show 30-Day Forecast", value=True)
@@ -285,17 +297,17 @@ def main():
         with st.spinner("AI is analyzing patterns..."):
             try:
                 # 1. Detect Anomalies
-                anomalies_df = detect_anomalies(daily_sales, sensitivity, selected_items, nixtla_api_key)
-                merged_df = daily_sales.merge(anomalies_df, on=['unique_id', 'ds'], how='inner', suffixes=('', '_anomaly'))
+                anomalies_df = detect_anomalies(daily_sales_for_analysis, sensitivity, analysis_ids, nixtla_api_key)
+                merged_df = daily_sales_for_analysis.merge(anomalies_df, on=['unique_id', 'ds'], how='inner', suffixes=('', '_anomaly'))
                 
                 # 2. Generate Forecast if enabled
                 forecast_df = None
                 if show_forecast:
-                    forecast_df = generate_forecast(daily_sales, selected_items, nixtla_api_key)
+                    forecast_df = generate_forecast(daily_sales_for_analysis, analysis_ids, nixtla_api_key)
 
                 # KPI Metrics
                 cols = st.columns(3)
-                total_sales = merged_df[merged_df['unique_id'].isin(selected_items)]['y'].sum()
+                total_sales = merged_df[merged_df['unique_id'].isin(analysis_ids)]['y'].sum()
                 total_anomalies = merged_df['anomaly'].sum()
                 
                 cols[0].metric("Total Sales Volume", f"${total_sales:,.0f}")
@@ -309,7 +321,7 @@ def main():
 
                 # Visualizations
                 st.markdown("---")
-                for item in selected_items:
+                for item in analysis_ids:
                     item_data = merged_df[merged_df['unique_id'] == item]
                     
                     fig = go.Figure()
@@ -429,7 +441,7 @@ def main():
                     if len(anomalous_data) > 6:
                         st.info(f"Showing top 6 of {len(anomalous_data)} total anomalies. Adjust sensitivity to refine results.")
                 else:
-                    st.success(f"No anomalies detected for {selected_items} at the current sensitivity level.")
+                    st.success(f"No anomalies detected for {analysis_ids} at the current sensitivity level.")
             except Exception as e:
                 st.error(f"Error during analysis: {e}")
                 if "api_key" in str(e).lower() or "unauthorized" in str(e).lower():
@@ -446,14 +458,19 @@ def main():
         feb_end = pd.Timestamp("2026-02-28")
         
         # Filter for items that have data in Feb 2026 and before
-        available_ids = daily_sales[daily_sales['ds'] < feb_start]['unique_id'].unique()
+        available_ids = ["All"] + sorted(daily_sales[daily_sales['ds'] < feb_start]['unique_id'].unique().tolist())
         feb_items = st.selectbox("Select Item for Variance Analysis", available_ids)
         
         if feb_items:
             # 1. Training data (All time before Feb 2026)
-            train_df = daily_sales[(daily_sales['ds'] < feb_start) & (daily_sales['unique_id'] == feb_items)]
-            # 2. Actual data (Feb 2026)
-            actual_df = daily_sales[(daily_sales['ds'] >= feb_start) & (daily_sales['ds'] <= feb_end) & (daily_sales['unique_id'] == feb_items)]
+            if feb_items == "All":
+                agg_sales = daily_sales.groupby('ds').agg({'y': 'sum'}).reset_index()
+                agg_sales['unique_id'] = 'Total Aggregated'
+                train_df = agg_sales[agg_sales['ds'] < feb_start]
+                actual_df = agg_sales[(agg_sales['ds'] >= feb_start) & (agg_sales['ds'] <= feb_end)]
+            else:
+                train_df = daily_sales[(daily_sales['ds'] < feb_start) & (daily_sales['unique_id'] == feb_items)]
+                actual_df = daily_sales[(daily_sales['ds'] >= feb_start) & (daily_sales['ds'] <= feb_end) & (daily_sales['unique_id'] == feb_items)]
             
             if not actual_df.empty:
                 with st.spinner("Generating Feb 2026 forecast..."):
