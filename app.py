@@ -128,6 +128,10 @@ def preprocess_data(df, ds_col, y_col, id_col):
     working_df = working_df.rename(columns={ds_col: 'ds', y_col: 'y', id_col: 'unique_id'})
     working_df['ds'] = pd.to_datetime(working_df['ds'], errors='coerce')
     
+    # Ensure y is numeric and cap actual values at 0
+    working_df['y'] = pd.to_numeric(working_df['y'], errors='coerce').fillna(0)
+    working_df['y'] = working_df['y'].clip(lower=0)
+    
     # Drop rows where date could not be parsed
     invalid_dates = working_df['ds'].isna().sum()
     if invalid_dates > 0:
@@ -194,6 +198,16 @@ def detect_anomalies(df, level, selected_items, api_key):
         freq='D',
         level=level
     )
+    
+    if anomalies_df.empty:
+        return anomalies_df
+        
+    # Cap predicted values and confidence intervals at 0
+    # Ensure only existing TimeGPT numeric columns are clipped
+    for col in anomalies_df.columns:
+        if 'TimeGPT' in col:
+            anomalies_df[col] = pd.to_numeric(anomalies_df[col], errors='coerce').clip(lower=0)
+            
     return anomalies_df
 
 def generate_forecast(df, selected_items, api_key, horizon=30):
@@ -209,6 +223,15 @@ def generate_forecast(df, selected_items, api_key, horizon=30):
         freq='D',
         level=[80, 90] # Forecasting intervals
     )
+    
+    if forecast_df.empty:
+        return forecast_df
+        
+    # Cap projected values and confidence intervals at 0
+    for col in forecast_df.columns:
+        if 'TimeGPT' in col:
+            forecast_df[col] = pd.to_numeric(forecast_df[col], errors='coerce').clip(lower=0)
+            
     return forecast_df
 
 def main():
@@ -316,7 +339,16 @@ def main():
             try:
                 # 1. Detect Anomalies
                 anomalies_df = detect_anomalies(daily_sales_for_analysis, sensitivity, analysis_ids, nixtla_api_key)
-                merged_df = daily_sales_for_analysis.merge(anomalies_df, on=['unique_id', 'ds'], how='inner', suffixes=('', '_anomaly'))
+                
+                if not anomalies_df.empty:
+                    merged_df = daily_sales_for_analysis.merge(anomalies_df, on=['unique_id', 'ds'], how='left')
+                    # Ensure 'anomaly' column exists and fill NaNs
+                    if 'anomaly' not in merged_df.columns:
+                        merged_df['anomaly'] = 0
+                    merged_df['anomaly'] = merged_df['anomaly'].fillna(0)
+                else:
+                    merged_df = daily_sales_for_analysis.copy()
+                    merged_df['anomaly'] = 0
                 
                 # 2. Generate Forecast if enabled
                 forecast_df = None
@@ -496,6 +528,12 @@ def main():
                         nixtla_client = NixtlaClient(api_key=nixtla_api_key)
                         # Generate forecast for 28 days with 90% confidence intervals
                         forecast_feb = nixtla_client.forecast(df=train_df, h=28, freq='D', level=[90])
+                        
+                        # Cap predicted values and confidence intervals at 0
+                        if not forecast_feb.empty:
+                            for col in forecast_feb.columns:
+                                if 'TimeGPT' in col:
+                                    forecast_feb[col] = pd.to_numeric(forecast_feb[col], errors='coerce').clip(lower=0)
                         
                         # Merge actuals and forecast for comparison
                         comparison_df = actual_df.merge(forecast_feb, on='ds', how='inner')
