@@ -279,159 +279,279 @@ def main():
         st.warning(f"Please select at least one {id_col} to begin.")
         return
 
-    with st.spinner("AI is analyzing patterns..."):
-        try:
-            # 1. Detect Anomalies
-            anomalies_df = detect_anomalies(daily_sales, sensitivity, selected_items, nixtla_api_key)
-            merged_df = daily_sales.merge(anomalies_df, on=['unique_id', 'ds'], how='inner', suffixes=('', '_anomaly'))
-            
-            # 2. Generate Forecast if enabled
-            forecast_df = None
-            if show_forecast:
-                forecast_df = generate_forecast(daily_sales, selected_items, nixtla_api_key)
+    tab1, tab2 = st.tabs(["🔍 Explorer", "📊 Variance Analysis"])
 
-            # KPI Metrics
-            cols = st.columns(3)
-            total_sales = merged_df[merged_df['unique_id'].isin(selected_items)]['y'].sum()
-            total_anomalies = merged_df['anomaly'].sum()
-            
-            cols[0].metric("Total Sales Volume", f"${total_sales:,.0f}")
-            cols[1].metric("Anomalies Detected", int(total_anomalies))
-            
-            if forecast_df is not None:
-                next_month_sales = forecast_df['TimeGPT'].sum()
-                cols[2].metric("Projected 30-Day Sales", f"${next_month_sales:,.0f}")
-            else:
-                cols[2].metric(f"Active {id_col}s", len(selected_items))
+    with tab1:
+        with st.spinner("AI is analyzing patterns..."):
+            try:
+                # 1. Detect Anomalies
+                anomalies_df = detect_anomalies(daily_sales, sensitivity, selected_items, nixtla_api_key)
+                merged_df = daily_sales.merge(anomalies_df, on=['unique_id', 'ds'], how='inner', suffixes=('', '_anomaly'))
+                
+                # 2. Generate Forecast if enabled
+                forecast_df = None
+                if show_forecast:
+                    forecast_df = generate_forecast(daily_sales, selected_items, nixtla_api_key)
 
-            # Visualizations
-            st.markdown("---")
-            for item in selected_items:
-                item_data = merged_df[merged_df['unique_id'] == item]
+                # KPI Metrics
+                cols = st.columns(3)
+                total_sales = merged_df[merged_df['unique_id'].isin(selected_items)]['y'].sum()
+                total_anomalies = merged_df['anomaly'].sum()
                 
-                fig = go.Figure()
+                cols[0].metric("Total Sales Volume", f"${total_sales:,.0f}")
+                cols[1].metric("Anomalies Detected", int(total_anomalies))
                 
-                # Historical Data
-                fig.add_trace(go.Scatter(
-                    x=item_data['ds'], y=item_data['y'],
-                    mode='lines',
-                    name='Actual History',
-                    line=dict(color='#3498db', width=2),
-                    opacity=0.7
-                ))
-                
-                # Anomalies (Red 'X' markers on top of the line)
-                anoms = item_data[item_data['anomaly'] == 1]
-                fig.add_trace(go.Scatter(
-                    x=anoms['ds'], y=anoms['y'],
-                    mode='markers',
-                    name='🚨 AI Flagged Anomaly',
-                    marker=dict(color='#e74c3c', size=10, symbol='x'),
-                    hovertemplate="<b>🚨 ANOMALY DETECTED</b><br>Date: %{x}<extra></extra>"
-                ))
-
-                # Forecast
                 if forecast_df is not None:
-                    item_forecast = forecast_df[forecast_df['unique_id'] == item]
-                    
-                    # Connect history to forecast
-                    last_hist = item_data.iloc[-1]
-                    f_ds = pd.concat([pd.Series([last_hist['ds']]), item_forecast['ds']])
-                    f_y = pd.concat([pd.Series([last_hist['y']]), item_forecast['TimeGPT']])
+                    next_month_sales = forecast_df['TimeGPT'].sum()
+                    cols[2].metric("Projected 30-Day Sales", f"${next_month_sales:,.0f}")
+                else:
+                    cols[2].metric(f"Active {id_col}s", len(selected_items))
 
+                # Visualizations
+                st.markdown("---")
+                for item in selected_items:
+                    item_data = merged_df[merged_df['unique_id'] == item]
+                    
+                    fig = go.Figure()
+                    
+                    # Historical Data
                     fig.add_trace(go.Scatter(
-                        x=f_ds, y=f_y,
+                        x=item_data['ds'], y=item_data['y'],
                         mode='lines',
-                        name='AI Projection',
-                        line=dict(color='#2ecc71', width=3, dash='dash'),
+                        name='Actual History',
+                        line=dict(color='#3498db', width=2),
+                        opacity=0.7
                     ))
                     
-                    # Confidence Intervals
+                    # Anomalies (Red 'X' markers on top of the line)
+                    anoms = item_data[item_data['anomaly'] == 1]
                     fig.add_trace(go.Scatter(
-                        x=item_forecast['ds'], y=item_forecast['TimeGPT-hi-90'],
-                        mode='lines', line=dict(width=0), showlegend=False
-                    ))
-                    fig.add_trace(go.Scatter(
-                        x=item_forecast['ds'], y=item_forecast['TimeGPT-lo-90'],
-                        mode='lines', fill='tonexty',
-                        fillcolor='rgba(46, 204, 113, 0.1)',
-                        line=dict(width=0), name='90% Confidence', showlegend=False
+                        x=anoms['ds'], y=anoms['y'],
+                        mode='markers',
+                        name='🚨 AI Flagged Anomaly',
+                        marker=dict(color='#e74c3c', size=10, symbol='x'),
+                        hovertemplate="<b>🚨 ANOMALY DETECTED</b><br>Date: %{x}<extra></extra>"
                     ))
 
-                fig.update_layout(
-                    title=f"Time-Series Analysis: {item}",
-                    xaxis_title="Date",
-                    yaxis_title=y_col,
-                    template="plotly_white",
-                    height=500,
-                    margin=dict(l=20, r=20, t=60, b=20),
-                    hovermode="x unified"
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-
-            # Detailed Insight Cards
-            if total_anomalies > 0:
-                st.markdown("### 💡 Automated Business Insights")
-                anomalous_data = merged_df[merged_df['anomaly'] == 1].sort_values('ds', ascending=False)
-                
-                # We show the top 6 most recent or significant anomalies as cards
-                display_cols = st.columns(2)
-                for i, (_, row) in enumerate(anomalous_data.head(6).iterrows()):
-                    col_idx = i % 2
-                    with display_cols[col_idx]:
-                        # 1. Determine "Why": Spike vs Dip
-                        # More robust column finding: look for columns containing 'hi' or 'lo'
-                        hi_cols = [c for c in anomalous_data.columns if 'hi' in c.lower()]
-                        lo_cols = [c for c in anomalous_data.columns if 'lo' in c.lower()]
+                    # Forecast
+                    if forecast_df is not None:
+                        item_forecast = forecast_df[forecast_df['unique_id'] == item]
                         
-                        if not hi_cols or not lo_cols:
-                            continue # Should not happen, but prevents crash
+                        # Connect history to forecast
+                        last_hist = item_data.iloc[-1]
+                        f_ds = pd.concat([pd.Series([last_hist['ds']]), item_forecast['ds']])
+                        f_y = pd.concat([pd.Series([last_hist['y']]), item_forecast['TimeGPT']])
+
+                        fig.add_trace(go.Scatter(
+                            x=f_ds, y=f_y,
+                            mode='lines',
+                            name='AI Projection',
+                            line=dict(color='#2ecc71', width=3, dash='dash'),
+                        ))
+                        
+                        # Confidence Intervals
+                        fig.add_trace(go.Scatter(
+                            x=item_forecast['ds'], y=item_forecast['TimeGPT-hi-90'],
+                            mode='lines', line=dict(width=0), showlegend=False
+                        ))
+                        fig.add_trace(go.Scatter(
+                            x=item_forecast['ds'], y=item_forecast['TimeGPT-lo-90'],
+                            mode='lines', fill='tonexty',
+                            fillcolor='rgba(46, 204, 113, 0.1)',
+                            line=dict(width=0), name='90% Confidence', showlegend=False
+                        ))
+
+                    fig.update_layout(
+                        title=f"Time-Series Analysis: {item}",
+                        xaxis_title="Date",
+                        yaxis_title=y_col,
+                        template="plotly_white",
+                        height=500,
+                        margin=dict(l=20, r=20, t=60, b=20),
+                        hovermode="x unified"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+
+                # Detailed Insight Cards
+                if total_anomalies > 0:
+                    st.markdown("### 💡 Automated Business Insights")
+                    anomalous_data = merged_df[merged_df['anomaly'] == 1].sort_values('ds', ascending=False)
+                    
+                    # We show the top 6 most recent or significant anomalies as cards
+                    display_cols = st.columns(2)
+                    for i, (_, row) in enumerate(anomalous_data.head(6).iterrows()):
+                        col_idx = i % 2
+                        with display_cols[col_idx]:
+                            # 1. Determine "Why": Spike vs Dip
+                            # More robust column finding: look for columns containing 'hi' or 'lo'
+                            hi_cols = [c for c in anomalous_data.columns if 'hi' in c.lower()]
+                            lo_cols = [c for c in anomalous_data.columns if 'lo' in c.lower()]
                             
-                        upper_bound = row[hi_cols[0]]
-                        lower_bound = row[lo_cols[0]]
-                        actual = row['y']
-                        
-                        if actual > upper_bound:
-                            direction = "Spike"
-                            magnitude = actual / upper_bound if upper_bound > 0 else (actual/1.0)
-                            status_icon = "🚀"
-                            status_text = "Positive Spike"
-                            color_class = "highlight-red" # Using red for attention as requested
-                            border_color = "#2ecc71" # Green border for growth
-                        else:
-                            direction = "Dip"
-                            magnitude = lower_bound / actual if actual > 0 else 0
-                            status_icon = "📉"
-                            status_text = "Negative Dip"
-                            color_class = "highlight-red" # Red for risk
-                            border_color = "#e74c3c" # Red border for loss
+                            if not hi_cols or not lo_cols:
+                                continue # Should not happen, but prevents crash
+                                
+                            upper_bound = row[hi_cols[0]]
+                            lower_bound = row[lo_cols[0]]
+                            actual = row['y']
+                            
+                            if actual > upper_bound:
+                                direction = "Spike"
+                                magnitude = actual / upper_bound if upper_bound > 0 else (actual/1.0)
+                                status_icon = "🚀"
+                                status_text = "Positive Spike"
+                                color_class = "highlight-red" # Using red for attention as requested
+                                border_color = "#2ecc71" # Green border for growth
+                            else:
+                                direction = "Dip"
+                                magnitude = lower_bound / actual if actual > 0 else 0
+                                status_icon = "📉"
+                                status_text = "Negative Dip"
+                                color_class = "highlight-red" # Red for risk
+                                border_color = "#e74c3c" # Red border for loss
 
-                        # 2. Get tailored strategy
-                        strategy = get_business_tip(row['unique_id'], direction, magnitude)
+                            # 2. Get tailored strategy
+                            strategy = get_business_tip(row['unique_id'], direction, magnitude)
 
-                        st.markdown(f"""
-                        <div class="insight-card" style="border-left-color: {border_color}">
-                            <div class="insight-title">{row['ds'].strftime('%B %d, %Y')} | {row['unique_id']}</div>
-                            <div class="insight-value">{status_icon} {status_text}</div>
-                            <div class="insight-desc">
-                                Actual value of <span class="{color_class}">{actual:,.2f}</span> was 
-                                <span class="{color_class}">{magnitude:.1f}x</span> {"higher" if direction == "Spike" else "lower"} than the AI predicted.
-                                <br><br>
-                                <b>💡 Strategy:</b> {strategy}
+                            st.markdown(f"""
+                            <div class="insight-card" style="border-left-color: {border_color}">
+                                <div class="insight-title">{row['ds'].strftime('%B %d, %Y')} | {row['unique_id']}</div>
+                                <div class="insight-value">{status_icon} {status_text}</div>
+                                <div class="insight-desc">
+                                    Actual value of <span class="{color_class}">{actual:,.2f}</span> was 
+                                    <span class="{color_class}">{magnitude:.1f}x</span> {"higher" if direction == "Spike" else "lower"} than the AI predicted.
+                                    <br><br>
+                                    <b>💡 Strategy:</b> {strategy}
+                                </div>
                             </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                
-                if len(anomalous_data) > 6:
-                    st.info(f"Showing top 6 of {len(anomalous_data)} total anomalies. Adjust sensitivity to refine results.")
-            else:
-                st.success(f"No anomalies detected for {selected_items} at the current sensitivity level.")
+                            """, unsafe_allow_html=True)
+                    
+                    if len(anomalous_data) > 6:
+                        st.info(f"Showing top 6 of {len(anomalous_data)} total anomalies. Adjust sensitivity to refine results.")
+                else:
+                    st.success(f"No anomalies detected for {selected_items} at the current sensitivity level.")
+            except Exception as e:
+                st.error(f"Error during analysis: {e}")
+                if "api_key" in str(e).lower() or "unauthorized" in str(e).lower():
+                    st.warning("Please check your Nixtla API Key in the sidebar.")
 
-        except Exception as e:
-            st.error(f"Error during analysis: {e}")
-            if "api_key" in str(e).lower() or "unauthorized" in str(e).lower():
-                st.warning("Please check your Nixtla API Key in the sidebar.")
+
+
+
+    with tab2:
+        st.markdown("### 📊 Predicted vs Actual Variance (Feb 2026)")
+        st.info("This tab focuses on comparing Predicted values (generated using data before Feb 2026) with Actual values for February 2026.")
+        
+        feb_start = pd.Timestamp("2026-02-01")
+        feb_end = pd.Timestamp("2026-02-28")
+        
+        # Filter for items that have data in Feb 2026 and before
+        available_ids = daily_sales[daily_sales['ds'] < feb_start]['unique_id'].unique()
+        feb_items = st.selectbox("Select Item for Variance Analysis", available_ids)
+        
+        if feb_items:
+            # 1. Training data (All time before Feb 2026)
+            train_df = daily_sales[(daily_sales['ds'] < feb_start) & (daily_sales['unique_id'] == feb_items)]
+            # 2. Actual data (Feb 2026)
+            actual_df = daily_sales[(daily_sales['ds'] >= feb_start) & (daily_sales['ds'] <= feb_end) & (daily_sales['unique_id'] == feb_items)]
+            
+            if not actual_df.empty:
+                with st.spinner("Generating Feb 2026 forecast..."):
+                    try:
+                        nixtla_client = NixtlaClient(api_key=nixtla_api_key)
+                        # Generate forecast for 28 days with 90% confidence intervals
+                        forecast_feb = nixtla_client.forecast(df=train_df, h=28, freq='D', level=[90])
+                        
+                        # Merge actuals and forecast for comparison
+                        comparison_df = actual_df.merge(forecast_feb, on='ds', how='inner')
+                        comparison_df['Variance'] = comparison_df['y'] - comparison_df['TimeGPT']
+                        comparison_df['Variance %'] = (comparison_df['Variance'] / comparison_df['TimeGPT'] * 100).fillna(0)
+                        
+                        # 90% Interval check
+                        comparison_df['In Range'] = (comparison_df['y'] <= comparison_df['TimeGPT-hi-90']) & (comparison_df['y'] >= comparison_df['TimeGPT-lo-90'])
+
+                        # Visualization
+                        fig_var = go.Figure()
+                        
+                        # 90% Confidence Interval (Shaded Area)
+                        fig_var.add_trace(go.Scatter(
+                            x=comparison_df['ds'], y=comparison_df['TimeGPT-hi-90'],
+                            mode='lines', line=dict(width=0), showlegend=False,
+                            hoverinfo='skip'
+                        ))
+                        fig_var.add_trace(go.Scatter(
+                            x=comparison_df['ds'], y=comparison_df['TimeGPT-lo-90'],
+                            mode='lines', fill='tonexty',
+                            fillcolor='rgba(46, 204, 113, 0.15)',
+                            line=dict(width=0), name='90% Confidence Range'
+                        ))
+
+                        # Actual
+                        fig_var.add_trace(go.Scatter(
+                            x=comparison_df['ds'], y=comparison_df['y'],
+                            name='Actual Sales', line=dict(color='#3498db', width=3)
+                        ))
+                        
+                        # Predicted
+                        fig_var.add_trace(go.Scatter(
+                            x=comparison_df['ds'], y=comparison_df['TimeGPT'],
+                            name='Predicted (TimeGPT)', line=dict(color='#2ecc71', width=3, dash='dash')
+                        ))
+                        
+                        # Variance Indicator (Area chart below)
+                        fig_var.add_trace(go.Bar(
+                            x=comparison_df['ds'], y=comparison_df['Variance'],
+                            name='Variance (Actual - Predicted)',
+                            marker_color=comparison_df['Variance'].apply(lambda x: '#e74c3c' if x < 0 else '#2ecc71'),
+                            opacity=0.4,
+                            yaxis='y2'
+                        ))
+
+                        fig_var.update_layout(
+                            title=f"Variance Analysis: {feb_items} (Feb 2026)",
+                            template="plotly_white",
+                            height=600,
+                            hovermode="x unified",
+                            yaxis=dict(title=y_col),
+                            yaxis2=dict(title="Delta ($)", overlaying='y', side='right', showgrid=False),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        )
+                        st.plotly_chart(fig_var, use_container_width=True)
+                        
+                        # Summary Table
+                        st.markdown("### 📝 Detailed Comparison & Range Status")
+                        
+                        # Add a "Trend" column with icons
+                        def get_status_label(row):
+                            trend = "📈 Over" if row['Variance %'] > 5 else ("📉 Under" if row['Variance %'] < -5 else "➡️ Stable")
+                            in_range = "✅ In Range" if row['In Range'] else "❌ Out of Range"
+                            return f"{in_range} | {trend}"
+
+                        comparison_df['Status'] = comparison_df.apply(get_status_label, axis=1)
+                        comparison_df['90% Interval'] = comparison_df.apply(lambda r: f"${r['TimeGPT-lo-90']:,.0f} - ${r['TimeGPT-hi-90']:,.0f}", axis=1)
+                        
+                        # Selection for the table
+                        table_df = comparison_df[['ds', 'y', 'TimeGPT', '90% Interval', 'Variance', 'Status']].copy()
+                        table_df.columns = ['Date', 'Actual Value', 'Predicted Value', '90% Conf. Range', 'Variance ($)', 'Result & Trend']
+                        table_df['Date'] = table_df['Date'].dt.date
+                        
+                        # Displaying with styling
+                        st.dataframe(
+                            table_df.style.format({
+                                'Actual Value': '${:,.2f}',
+                                'Predicted Value': '${:,.2f}',
+                                'Variance ($)': '${:,.2f}'
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"Error forecasting for {feb_items}: {e}")
+            else:
+                st.warning(f"No actual data found for {feb_items} in February 2026 to compare against.")
+
+
 
 if __name__ == "__main__":
     main()
