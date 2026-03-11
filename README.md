@@ -6,7 +6,7 @@ Welcome to your **Retail Insights AI Explorer**! This tool uses cutting-edge Art
 
 ## 🌟 What does this app do?
 
-This dashboard transforms your raw sales spreadsheets into a live intelligence center. It focuses on three things:
+This dashboard transforms your raw sales spreadsheets (CSV or Excel) into a live intelligence center. It focuses on three things:
 1.  **Anomaly Detection**: Spotting "out-of-the-ordinary" sales days (Spikes or Dips).
 2.  **Future Forecasting**: Predicting what your sales will look like for the next 7 days.
 3.  **Automated Strategy**: Explaining *why* an event was unusual and suggesting business actions.
@@ -51,7 +51,7 @@ At the bottom of the page, the AI generates **Insight Cards** for the most recen
 On the left sidebar, enter your **Nixtla API Key**. This is the "fuel" for the AI. If you don't have one, the app will show a warning.
 
 ### 2. Upload Your Data
-You can use the default `retail_sales.csv` or upload your own CSV file. The app is **Universal**, meaning it can work with any time-series data.
+You can use the default preset datasets or upload your own CSV or Excel (`.xlsx`, `.xls`) file. The app is **Universal**, meaning it can work with any time-series data.
 
 ### 3. Column Mapping
 If you upload a new file, tell the AI which column is which:
