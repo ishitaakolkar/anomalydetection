@@ -80,10 +80,29 @@ def load_env():
 def load_data(source):
     """Load data from a filename string or an uploaded file object."""
     if source is not None:
+        # Get filename to check extension
+        filename = ""
+        if isinstance(source, str):
+            filename = source
+        elif hasattr(source, 'name'):
+            filename = source.name
+
+        # Handle Excel files
+        if filename.endswith(('.xlsx', '.xls')):
+            try:
+                # Reset pointer if it's a file-like object
+                if not isinstance(source, str) and hasattr(source, 'seek'):
+                    source.seek(0)
+                return pd.read_excel(source, thousands=',')
+            except Exception as e:
+                st.error(f"Error loading Excel file: {e}")
+                return None
+
+        # Handle CSV files with existing encoding logic
         encodings = ['utf-8', 'latin-1', 'cp1252']
         for encoding in encodings:
             try:
-                # Reset pointer if it's a file-like object (e.g. UploadedFile)
+                # Reset pointer if it's a file-like object
                 if not isinstance(source, str) and hasattr(source, 'seek'):
                     source.seek(0)
                     
@@ -96,10 +115,10 @@ def load_data(source):
             except UnicodeDecodeError:
                 continue
             except Exception as e:
-                st.error(f"Error loading data with {encoding}: {e}")
+                st.error(f"Error loading CSV with {encoding}: {e}")
                 break
         else:
-            st.error("Error loading data: Could not decode file with common encodings (UTF-8, Latin-1, CP1252).")
+            st.error("Error loading data: Could not decode CSV with common encodings.")
     return None
 
 @st.cache_data
@@ -218,7 +237,7 @@ def main():
         selected_label = st.sidebar.selectbox("Select Dataset", preset_list, index=default_idx)
         source = preset_options[selected_label]
     else:
-        source = st.sidebar.file_uploader("Upload your CSV", type="csv")
+        source = st.sidebar.file_uploader("Upload your file", type=["csv", "xlsx", "xls"])
     
     df = load_data(source)
     
