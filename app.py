@@ -209,7 +209,6 @@ def main():
     source = None
     if source_type == "Presets":
         preset_options = {
-            "📈 Tenant Sales (Dummy Data)": "Dummydata.csv",
             "🛒 Retail Sales": "retail_sales.csv",
             "🛍️ Mall Sales": "mall_sales.csv"
         }
