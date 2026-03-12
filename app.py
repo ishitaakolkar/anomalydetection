@@ -341,7 +341,9 @@ def main():
                 anomalies_df = detect_anomalies(daily_sales_for_analysis, sensitivity, analysis_ids, nixtla_api_key)
                 
                 if not anomalies_df.empty:
-                    merged_df = daily_sales_for_analysis.merge(anomalies_df, on=['unique_id', 'ds'], how='left')
+                    # Drop 'y' from anomalies_df if it exists to avoid column collision in left merge
+                    anomalies_to_merge = anomalies_df.drop(columns=['y']) if 'y' in anomalies_df.columns else anomalies_df
+                    merged_df = daily_sales_for_analysis.merge(anomalies_to_merge, on=['unique_id', 'ds'], how='left')
                     # Ensure 'anomaly' column exists and fill NaNs
                     if 'anomaly' not in merged_df.columns:
                         merged_df['anomaly'] = 0
